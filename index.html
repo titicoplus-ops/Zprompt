@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Z-Image Prompt Generator</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    min-height: 100vh;
+    background: #080A0F;
+    color: #E8EAF0;
+    font-family: 'DM Mono', 'Fira Code', monospace;
+    overflow-x: hidden;
+  }
+
+  .grid-bg {
+    position: fixed; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(0,255,178,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,255,178,0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
+    z-index: 0;
+  }
+
+  .noise {
+    position: fixed; inset: 0; pointer-events: none; opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 200px; z-index: 1;
+  }
+
+  .container {
+    position: relative; z-index: 2;
+    max-width: 720px; margin: 0 auto;
+    padding: 40px 20px 80px;
+  }
+
+  /* HEADER */
+  .eyebrow {
+    font-size: 0.7rem; color: #00FFB2;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .eyebrow span { color: #2A3550; margin-left: 6px; letter-spacing: 0.1em; }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(2rem, 6vw, 3.5rem);
+    letter-spacing: -0.03em; line-height: 1;
+    background: linear-gradient(135deg, #00FFB2 0%, #00C9FF 50%, #A78BFA 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .subtitle {
+    color: #3A4560; font-size: 0.8rem;
+    margin-top: 12px; line-height: 1.6;
+  }
+
+  /* UPLOAD */
+  .upload-zone {
+    border: 2px dashed #1E2535;
+    border-radius: 16px; padding: 48px 24px;
+    text-align: center; cursor: pointer;
+    transition: all 0.3s ease;
+    background: #0D1017;
+    position: relative; overflow: hidden;
+    margin-top: 32px;
+  }
+  .upload-zone::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at center, rgba(0,255,178,0.05) 0%, transparent 70%);
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .upload-zone:hover::before, .upload-zone.dragging::before { opacity: 1; }
+  .upload-zone:hover, .upload-zone.dragging { border-color: #00FFB2; }
+  .upload-zone.dragging { transform: scale(1.01); }
+
+  .upload-icon { font-size: 2.5rem; margin-bottom: 12px; }
+  .upload-title {
+    font-family: 'Syne', sans-serif; font-weight: 600;
+    font-size: 1rem; color: #5A6580;
+  }
+  .upload-hint { font-size: 0.75rem; color: #2A3550; margin-top: 8px; }
+
+  /* IMAGE PREVIEW */
+  .preview-wrap {
+    position: relative; margin-top: 32px;
+    display: none;
+  }
+  .preview-wrap img {
+    width: 100%; border-radius: 16px;
+    border: 1px solid #1A2535;
+    max-height: 400px; object-fit: cover;
+    display: block;
+  }
+  .change-btn {
+    position: absolute; top: 12px; right: 12px;
+    background: rgba(8,10,15,0.85);
+    border: 1px solid #2A3550; border-radius: 8px;
+    padding: 6px 12px; color: #8892A4;
+    font-family: 'DM Mono', monospace; font-size: 0.72rem;
+    cursor: pointer; backdrop-filter: blur(8px);
+    letter-spacing: 0.05em; transition: all 0.2s;
+  }
+  .change-btn:hover { color: #E8EAF0; border-color: #4A5570; }
+
+  /* BUTTON */
+  .generate-btn {
+    width: 100%; padding: 16px; margin-top: 14px;
+    background: linear-gradient(135deg, #00FFB2, #00C9FF);
+    color: #080A0F; border: none; border-radius: 12px;
+    font-family: 'Syne', sans-serif; font-weight: 700;
+    font-size: 1rem; letter-spacing: 0.05em;
+    cursor: pointer; transition: all 0.2s ease;
+    text-transform: uppercase;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .generate-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0,255,178,0.3);
+  }
+  .generate-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(8,10,15,0.3);
+    border-top-color: #080A0F;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ERROR */
+  .error-box {
+    margin-top: 14px; padding: 14px 18px;
+    background: rgba(255,107,107,0.08);
+    border: 1px solid rgba(255,107,107,0.3);
+    border-radius: 10px; font-size: 0.8rem;
+    color: #FF6B6B; display: none;
+  }
+
+  /* LOADING HINT */
+  .loading-hint {
+    margin-top: 16px; text-align: center;
+    font-size: 0.72rem; color: #2A3550;
+    letter-spacing: 0.1em; display: none;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* RESULTS */
+  .results-wrap { margin-top: 28px; display: none; }
+
+  .glow-line {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #00FFB2, transparent);
+    margin-bottom: 20px; opacity: 0.3;
+  }
+
+  .result-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
+  }
+  .result-header-label {
+    font-family: 'Syne', sans-serif; font-weight: 700;
+    font-size: 0.72rem; color: #00FFB2;
+    letter-spacing: 0.15em; text-transform: uppercase;
+  }
+  .result-header-line { flex: 1; height: 1px; background: #1A2535; }
+
+  .result-card {
+    background: #0D1017;
+    border: 1px solid #1A2030;
+    border-radius: 14px; padding: 20px;
+    margin-bottom: 12px;
+    position: relative; transition: border-color 0.2s;
+    animation: fadeIn 0.4s ease forwards;
+    opacity: 0;
+  }
+  .result-card:hover { border-color: #2A3550; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .card-label {
+    font-family: 'Syne', sans-serif; font-weight: 600;
+    font-size: 0.62rem; letter-spacing: 0.15em;
+    text-transform: uppercase; margin-bottom: 6px;
+  }
+
+  .copy-btn {
+    position: absolute; top: 14px; right: 14px;
+    background: #151C2A; border: 1px solid #1E2A3D;
+    border-radius: 8px; padding: 5px 11px;
+    color: #8892A4; font-family: 'DM Mono', monospace;
+    font-size: 0.68rem; cursor: pointer;
+    transition: all 0.2s; letter-spacing: 0.05em;
+  }
+  .copy-btn:hover { background: #1E2A3D; color: #E8EAF0; }
+  .copy-btn.copied { color: #00FFB2 !important; border-color: #00FFB2 !important; }
+
+  .prompt-text {
+    font-size: 0.83rem; line-height: 1.75;
+    color: #C0C8D8; margin-top: 4px;
+    white-space: pre-wrap;
+  }
+
+  .copy-all-btn {
+    display: block; margin: 20px auto 0;
+    background: transparent; border: 1px solid #1E2535;
+    border-radius: 10px; padding: 10px 24px;
+    color: #4A5570; font-family: 'DM Mono', monospace;
+    font-size: 0.75rem; cursor: pointer;
+    letter-spacing: 0.08em; transition: all 0.2s;
+  }
+  .copy-all-btn:hover { border-color: #00FFB2; color: #00FFB2; }
+
+  /* FOOTER */
+  .footer {
+    margin-top: 48px; text-align: center;
+    font-size: 0.62rem; color: #1A2030;
+    letter-spacing: 0.15em;
+  }
+</style>
+</head>
+<body>
+
+<div class="grid-bg"></div>
+<div class="noise"></div>
+
+<div class="container">
+
+  <!-- Header -->
+  <div class="eyebrow">◈ z-image <span>/ prompt-engine v1.0</span></div>
+  <h1>Prompt<br>Generator</h1>
+  <p class="subtitle">Sube una imagen → obtén un prompt profesional listo para z-image</p>
+
+  <!-- Upload zone -->
+  <div class="upload-zone" id="uploadZone">
+    <input type="file" id="fileInput" accept="image/*" style="display:none"/>
+    <div class="upload-icon">◫</div>
+    <p class="upload-title">Arrastra tu imagen aquí</p>
+    <p class="upload-hint">o haz clic para seleccionar · JPG, PNG, WEBP</p>
+  </div>
+
+  <!-- Preview -->
+  <div class="preview-wrap" id="previewWrap">
+    <img id="previewImg" src="" alt="Preview"/>
+    <button class="change-btn" id="changeBtn">✕ CAMBIAR</button>
+  </div>
+
+  <!-- Generate button -->
+  <button class="generate-btn" id="generateBtn" disabled>
+    ✦ GENERAR PROMPT PROFESIONAL
+  </button>
+
+  <!-- Error -->
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- Loading hint -->
+  <p class="loading-hint" id="loadingHint">
+    PROCESANDO · ANALIZANDO COMPOSICIÓN · GENERANDO DESCRIPTORES
+  </p>
+
+  <!-- Results -->
+  <div class="results-wrap" id="resultsWrap">
+    <div class="glow-line"></div>
+    <div class="result-header">
+      <span class="result-header-label">Resultado</span>
+      <div class="result-header-line"></div>
+    </div>
+    <div id="cardsContainer"></div>
+    <button class="copy-all-btn" id="copyAllBtn">↗ COPIAR PROMPT COMPLETO</button>
+  </div>
+
+  <div class="footer">POWERED BY CLAUDE · OPTIMIZED FOR Z-IMAGE</div>
+</div>
+
+<script>
+const SYSTEM_PROMPT = `You are an expert prompt engineer specializing in z-image AI image generation.
+When given an image, analyze it deeply and create a professional, highly detailed prompt that would recreate or inspire a similar image using z-image.
+
+Your prompt must follow z-image best practices:
+- Start with the main subject and composition
+- Include lighting description (golden hour, studio lighting, rim light, etc.)
+- Specify art style or photography style
+- Add camera/lens details if photographic (focal length, aperture)
+- Include mood, atmosphere, and color palette
+- Add quality boosters: ultra-detailed, 8k, photorealistic, sharp focus, etc.
+- Use comma-separated descriptors
+- Keep it under 200 words but densely packed
+
+Also provide:
+1. A SHORT version (under 50 words) for quick use
+2. NEGATIVE PROMPT suggestions to avoid common issues
+3. Suggested PARAMETERS (aspect ratio, style, quality level)
+
+Respond in Spanish. Format your response with clear sections using these exact headers:
+## PROMPT COMPLETO
+## PROMPT CORTO
+## NEGATIVE PROMPT
+## PARÁMETROS SUGERIDOS`;
+
+const SECTIONS = [
+  { key: "PROMPT COMPLETO",      label: "Prompt Completo",      icon: "✦", color: "#00FFB2" },
+  { key: "PROMPT CORTO",         label: "Prompt Corto",         icon: "◈", color: "#FF6B6B" },
+  { key: "NEGATIVE PROMPT",      label: "Negative Prompt",      icon: "⊘", color: "#A78BFA" },
+  { key: "PARÁMETROS SUGERIDOS", label: "Parámetros Sugeridos", icon: "◎", color: "#FBBF24" },
+];
+
+let imageBase64 = null;
+let imageMime   = null;
+let parsedResult = {};
+
+const uploadZone   = document.getElementById('uploadZone');
+const fileInput    = document.getElementById('fileInput');
+const previewWrap  = document.getElementById('previewWrap');
+const previewImg   = document.getElementById('previewImg');
+const changeBtn    = document.getElementById('changeBtn');
+const generateBtn  = document.getElementById('generateBtn');
+const errorBox     = document.getElementById('errorBox');
+const loadingHint  = document.getElementById('loadingHint');
+const resultsWrap  = document.getElementById('resultsWrap');
+const cardsContainer = document.getElementById('cardsContainer');
+const copyAllBtn   = document.getElementById('copyAllBtn');
+
+// Upload zone interactions
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragging'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragging'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragging');
+  processFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => processFile(e.target.files[0]));
+changeBtn.addEventListener('click', reset);
+
+function processFile(file) {
+  if (!file || !file.type.startsWith('image/')) {
+    showError('Por favor, sube un archivo de imagen válido (JPG, PNG, WEBP).');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    imageBase64 = e.target.result.split(',')[1];
+    imageMime   = file.type;
+    previewImg.src = e.target.result;
+    uploadZone.style.display = 'none';
+    previewWrap.style.display = 'block';
+    generateBtn.disabled = false;
+    hideError();
+    resultsWrap.style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+}
+
+function reset() {
+  imageBase64 = null; imageMime = null;
+  previewImg.src = '';
+  uploadZone.style.display = 'block';
+  previewWrap.style.display = 'none';
+  generateBtn.disabled = true;
+  generateBtn.innerHTML = '✦ GENERAR PROMPT PROFESIONAL';
+  resultsWrap.style.display = 'none';
+  loadingHint.style.display = 'none';
+  hideError();
+  fileInput.value = '';
+}
+
+generateBtn.addEventListener('click', generatePrompt);
+
+async function generatePrompt() {
+  if (!imageBase64) return;
+
+  generateBtn.disabled = true;
+  generateBtn.innerHTML = '<div class="spinner"></div> ANALIZANDO IMAGEN...';
+  loadingHint.style.display = 'block';
+  resultsWrap.style.display = 'none';
+  hideError();
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: SYSTEM_PROMPT,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: imageMime, data: imageBase64 } },
+            { type: 'text', text: 'Analiza esta imagen y genera un prompt profesional para z-image.' }
+          ]
+        }]
+      })
+    });
+
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+
+    const text = data.content.map(b => b.text || '').join('');
+    parsedResult = parseResult(text);
+    renderCards();
+    resultsWrap.style.display = 'block';
+
+  } catch (err) {
+    showError('Error al generar el prompt. Verificá tu conexión e intentá de nuevo.');
+    console.error(err);
+  } finally {
+    generateBtn.disabled = false;
+    generateBtn.innerHTML = '✦ GENERAR NUEVO PROMPT';
+    loadingHint.style.display = 'none';
+  }
+}
+
+function parseResult(text) {
+  const result = {};
+  SECTIONS.forEach(s => {
+    const regex = new RegExp(`## ${s.key}\\s*([\\s\\S]*?)(?=## |$)`);
+    const match = text.match(regex);
+    result[s.key] = match ? match[1].trim() : '';
+  });
+  return result;
+}
+
+function renderCards() {
+  cardsContainer.innerHTML = '';
+  SECTIONS.forEach((s, i) => {
+    if (!parsedResult[s.key]) return;
+    const card = document.createElement('div');
+    card.className = 'result-card';
+    card.style.animationDelay = `${i * 0.08}s`;
+    card.innerHTML = `
+      <div class="card-label" style="color:${s.color}">${s.icon} ${s.label}</div>
+      <button class="copy-btn" data-key="${s.key}">COPIAR</button>
+      <div class="prompt-text">${escapeHtml(parsedResult[s.key])}</div>
+    `;
+    cardsContainer.appendChild(card);
+  });
+
+  // Copy buttons
+  cardsContainer.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.getAttribute('data-key');
+      copyText(parsedResult[key], btn);
+    });
+  });
+
+  // Copy all
+  copyAllBtn.onclick = () => copyText(parsedResult['PROMPT COMPLETO'], copyAllBtn);
+}
+
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const original = btn.textContent;
+    btn.textContent = '✓ COPIADO';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = original.includes('COPIAR') ? 'COPIAR' : original;
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+}
+
+function showError(msg) {
+  errorBox.textContent = '⚠ ' + msg;
+  errorBox.style.display = 'block';
+}
+function hideError() { errorBox.style.display = 'none'; }
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
